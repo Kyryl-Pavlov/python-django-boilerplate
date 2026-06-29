@@ -44,6 +44,7 @@ jobs:
       - name: Run tests
         env:
           SECRET_KEY: test-only-not-a-real-secret
+          PYTHONPATH: services/app
         run: pytest tests/app/unit tests/app/integration --cov=app --cov-report=term-missing
 
   e2e:
