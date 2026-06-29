@@ -16,8 +16,8 @@ def test_health_check(http, base_url):
     res = http.get(f"{base_url}/health")
     assert res.status_code == 200
     body = res.json()
-    assert body["status"] == "ok"
-    assert "version" in body
+    assert body["message"] == "ok"
+    assert "version" in body["data"]
 
 
 def test_auth_register_and_login(http, base_url):
