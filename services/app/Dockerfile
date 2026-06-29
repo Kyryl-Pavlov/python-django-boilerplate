@@ -20,4 +20,4 @@ EXPOSE 5000
 
 ENV DJANGO_SETTINGS_MODULE=app.settings.production
 
-CMD ["gunicorn", "wsgi:application", "--bind", "0.0.0.0:5000", "--workers", "4", "--worker-class", "uvicorn.workers.UvicornWorker", "--worker-tmp-dir", "/dev/shm"]
+CMD ["gunicorn", "wsgi:application", "--bind", "0.0.0.0:5000", "--workers", "4", "--worker-tmp-dir", "/dev/shm"]
