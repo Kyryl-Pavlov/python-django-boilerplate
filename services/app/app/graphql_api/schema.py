@@ -14,7 +14,13 @@ class Query(HealthQuery, MediaQuery, EventsQuery, CacheTestQuery, graphene.Objec
     pass
 
 
-class Mutation(AuthMutations, MediaMutations, EventMutations, CacheTestMutations, graphene.ObjectType):
+class Mutation(
+    AuthMutations,
+    MediaMutations,
+    EventMutations,
+    CacheTestMutations,
+    graphene.ObjectType,
+):
     pass
 
 

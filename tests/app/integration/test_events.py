@@ -27,7 +27,9 @@ class TestPublish:
         assert res.json()["data"]["message_id"] == "msg-abc"
 
     def test_sqs_failure_returns_500(self, client, auth_headers):
-        with patch("app.api.v1.views.events.send_event", side_effect=Exception("SQS down")):
+        with patch(
+            "app.api.v1.views.events.send_event", side_effect=Exception("SQS down")
+        ):
             res = client.post(
                 "/api/v1/events",
                 {"type": "test.event"},
@@ -48,7 +50,9 @@ class TestList:
         assert res.json()["data"] == []
 
     def test_returns_stored_events(self, client, auth_headers):
-        Event.objects.create(sqs_message_id="msg-001", type="user.created", status="processed")
+        Event.objects.create(
+            sqs_message_id="msg-001", type="user.created", status="processed"
+        )
 
         res = client.get("/api/v1/events", **auth_headers)
         data = res.json()["data"]
@@ -61,4 +65,12 @@ class TestList:
         Event.objects.create(sqs_message_id="msg-002", type="ping", status="processed")
 
         data = client.get("/api/v1/events", **auth_headers).json()["data"][0]
-        assert {"id", "sqs_message_id", "type", "payload", "status", "created_at", "processed_at"} <= data.keys()
+        assert {
+            "id",
+            "sqs_message_id",
+            "type",
+            "payload",
+            "status",
+            "created_at",
+            "processed_at",
+        } <= data.keys()

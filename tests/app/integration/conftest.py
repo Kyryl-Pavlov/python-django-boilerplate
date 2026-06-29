@@ -50,7 +50,9 @@ def mock_cache():
 
 @pytest.fixture
 def gql(client):
-    def _execute(query: str, variables: dict | None = None, headers: dict | None = None):
+    def _execute(
+        query: str, variables: dict | None = None, headers: dict | None = None
+    ):
         payload = {"query": query}
         if variables:
             payload["variables"] = variables

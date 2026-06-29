@@ -28,7 +28,9 @@ class UploadFile(graphene.Mutation):
 
         ext = os.path.splitext(file.name)[1].lstrip(".").lower()
         if ext not in _ALLOWED_EXTENSIONS:
-            return MediaResponse(success=False, message=f"File type '.{ext}' is not allowed")
+            return MediaResponse(
+                success=False, message=f"File type '.{ext}' is not allowed"
+            )
 
         try:
             user = User.objects.get(id=user_id)

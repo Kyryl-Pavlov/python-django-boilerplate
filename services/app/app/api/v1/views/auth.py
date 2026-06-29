@@ -2,7 +2,7 @@ from django.db import IntegrityError
 from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from app.api.utils import api_response
 from app.api.v1.serializers.auth import LoginSerializer, RegisterSerializer
@@ -76,6 +76,8 @@ class RefreshView(APIView):
                 raise TokenError("Not a refresh token")
             new_access = str(refresh.access_token)
         except TokenError:
-            return api_response(False, "Invalid or expired refresh token", status_code=401)
+            return api_response(
+                False, "Invalid or expired refresh token", status_code=401
+            )
 
         return api_response(True, "Token refreshed", data={"access_token": new_access})

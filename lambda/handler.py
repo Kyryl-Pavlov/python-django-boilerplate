@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
+
 def get_database_url() -> str:
     secret_arn = os.environ.get("DATABASE_URL_SECRET_ARN")
     if secret_arn:
