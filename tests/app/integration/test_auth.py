@@ -13,7 +13,9 @@ class TestRegister:
         assert res.json()["success"] is True
 
     def test_missing_email_returns_422(self, client):
-        res = client.post("/api/v1/auth/register", {"password": "Pass123!"}, format="json")
+        res = client.post(
+            "/api/v1/auth/register", {"password": "Pass123!"}, format="json"
+        )
         assert res.status_code == 422
 
     def test_missing_password_returns_422(self, client):

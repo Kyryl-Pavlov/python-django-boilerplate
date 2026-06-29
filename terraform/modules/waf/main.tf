@@ -46,6 +46,15 @@ resource "aws_wafv2_web_acl" "main" {
       managed_rule_group_statement {
         name        = "AWSManagedRulesCommonRuleSet"
         vendor_name = "AWS"
+
+        # SizeRestrictions_BODY blocks requests > 8 KB, which rejects file uploads.
+        # Nginx enforces client_max_body_size 50m, so WAF body-size enforcement is redundant.
+        rule_action_override {
+          name = "SizeRestrictions_BODY"
+          action_to_use {
+            count {}
+          }
+        }
       }
     }
 

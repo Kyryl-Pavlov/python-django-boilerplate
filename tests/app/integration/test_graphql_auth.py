@@ -33,7 +33,9 @@ mutation {
 @pytest.mark.django_db
 class TestRegister:
     def test_success(self, gql):
-        payload = gql(_REGISTER, {"email": "new@example.com", "password": "Pass123!"}).json()["data"]["register"]
+        payload = gql(
+            _REGISTER, {"email": "new@example.com", "password": "Pass123!"}
+        ).json()["data"]["register"]
         assert payload["success"] is True
 
     def test_duplicate_email(self, gql):
@@ -44,12 +46,16 @@ class TestRegister:
         assert "already registered" in payload["message"]
 
     def test_missing_password(self, gql):
-        payload = gql(_REGISTER, {"email": "a@b.com", "password": ""}).json()["data"]["register"]
+        payload = gql(_REGISTER, {"email": "a@b.com", "password": ""}).json()["data"][
+            "register"
+        ]
         assert payload["success"] is False
 
     def test_email_normalized_to_lowercase(self, gql):
         gql(_REGISTER, {"email": "Upper@Example.COM", "password": "Pass123!"})
-        login = gql(_LOGIN, {"email": "upper@example.com", "password": "Pass123!"}).json()["data"]["login"]
+        login = gql(
+            _LOGIN, {"email": "upper@example.com", "password": "Pass123!"}
+        ).json()["data"]["login"]
         assert login["success"] is True
 
 
@@ -62,24 +68,32 @@ class TestLogin:
         assert payload["data"]["refreshToken"]
 
     def test_wrong_password(self, gql, registered_user):
-        payload = gql(_LOGIN, {**registered_user, "password": "wrong"}).json()["data"]["login"]
+        payload = gql(_LOGIN, {**registered_user, "password": "wrong"}).json()["data"][
+            "login"
+        ]
         assert payload["success"] is False
         assert "Invalid credentials" in payload["message"]
 
     def test_unknown_email(self, gql):
-        payload = gql(_LOGIN, {"email": "nobody@x.com", "password": "pass"}).json()["data"]["login"]
+        payload = gql(_LOGIN, {"email": "nobody@x.com", "password": "pass"}).json()[
+            "data"
+        ]["login"]
         assert payload["success"] is False
 
 
 @pytest.mark.django_db
 class TestRefreshToken:
     def test_success_returns_new_access_token(self, gql, gql_auth_headers):
-        payload = gql(_REFRESH, headers=gql_auth_headers["refresh"]).json()["data"]["refreshToken"]
+        payload = gql(_REFRESH, headers=gql_auth_headers["refresh"]).json()["data"][
+            "refreshToken"
+        ]
         assert payload["success"] is True
         assert payload["data"]["accessToken"]
 
     def test_access_token_rejected(self, gql, gql_auth_headers):
-        payload = gql(_REFRESH, headers=gql_auth_headers["access"]).json()["data"]["refreshToken"]
+        payload = gql(_REFRESH, headers=gql_auth_headers["access"]).json()["data"][
+            "refreshToken"
+        ]
         assert payload["success"] is False
 
     def test_no_token(self, gql):

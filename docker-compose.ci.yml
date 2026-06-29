@@ -35,7 +35,9 @@ services:
       retries: 10
 
   migrate:
-    build: .
+    build:
+      context: .
+      dockerfile: services/app/Dockerfile
     command: python manage.py migrate --noinput
     env_file:
       - .env.ci
@@ -49,7 +51,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: services/app/Dockerfile
     ports:
       - "5000:5000"
     env_file:

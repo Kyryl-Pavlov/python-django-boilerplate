@@ -32,14 +32,20 @@ class TestEvents:
         assert payload["success"] is False
 
     def test_empty_returns_empty_list(self, gql, gql_auth_headers):
-        payload = gql(_EVENTS, headers=gql_auth_headers["access"]).json()["data"]["events"]
+        payload = gql(_EVENTS, headers=gql_auth_headers["access"]).json()["data"][
+            "events"
+        ]
         assert payload["success"] is True
         assert payload["data"] == []
 
     def test_returns_stored_events(self, gql, gql_auth_headers):
-        Event.objects.create(sqs_message_id="msg-gql-01", type="gql.test", status="processed")
+        Event.objects.create(
+            sqs_message_id="msg-gql-01", type="gql.test", status="processed"
+        )
 
-        payload = gql(_EVENTS, headers=gql_auth_headers["access"]).json()["data"]["events"]
+        payload = gql(_EVENTS, headers=gql_auth_headers["access"]).json()["data"][
+            "events"
+        ]
         assert payload["success"] is True
         assert len(payload["data"]) == 1
         event = payload["data"][0]
@@ -57,7 +63,9 @@ class TestPublishEvent:
         assert payload["success"] is False
 
     def test_success_returns_message_id(self, gql, gql_auth_headers):
-        with patch("app.graphql_api.mutations.events.send_event", return_value="msg-xyz"):
+        with patch(
+            "app.graphql_api.mutations.events.send_event", return_value="msg-xyz"
+        ):
             payload = gql(
                 _PUBLISH,
                 {"type": "order.placed"},
@@ -67,7 +75,10 @@ class TestPublishEvent:
         assert payload["data"] == "msg-xyz"
 
     def test_sqs_failure_returns_error(self, gql, gql_auth_headers):
-        with patch("app.graphql_api.mutations.events.send_event", side_effect=Exception("SQS down")):
+        with patch(
+            "app.graphql_api.mutations.events.send_event",
+            side_effect=Exception("SQS down"),
+        ):
             payload = gql(
                 _PUBLISH, {"type": "test.event"}, headers=gql_auth_headers["access"]
             ).json()["data"]["publishEvent"]

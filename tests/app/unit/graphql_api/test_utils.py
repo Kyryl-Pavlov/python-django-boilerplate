@@ -1,6 +1,4 @@
 import pytest
-from unittest.mock import MagicMock
-from rest_framework_simplejwt.exceptions import TokenError
 
 from app.graphql_api.utils import get_token_from_bearer, verify_access_token
 

@@ -25,7 +25,9 @@ class MediaUploadView(APIView):
 
         ext = os.path.splitext(file.name)[1].lstrip(".").lower()
         if ext not in _ALLOWED_EXTENSIONS:
-            return api_response(False, f"File type '.{ext}' is not allowed", status_code=400)
+            return api_response(
+                False, f"File type '.{ext}' is not allowed", status_code=400
+            )
 
         try:
             content_key = upload_file(file, str(request.user.id), file.name)

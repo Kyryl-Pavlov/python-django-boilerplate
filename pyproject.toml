@@ -1,6 +1,7 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = ["services/app"]
+DJANGO_SETTINGS_MODULE = "app.settings.testing"
 filterwarnings = [
     "ignore::DeprecationWarning:django",
 ]

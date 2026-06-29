@@ -6,7 +6,7 @@
 
 A production-ready **Python 3.12 / Django** boilerplate for building scalable **REST** and **GraphQL** APIs — engineered for teams who want a clean architecture without spending weeks on infrastructure.
 
-Ships fully wired: **JWT authentication** (python-jose), **PostgreSQL** with SQLAlchemy 2 ORM and Alembic migrations, **AWS S3** file uploads with presigned URLs, async event processing via **AWS SQS + Lambda**, **Redis** caching, **Nginx** reverse proxy with DDoS protection, structured logging to **Sentry / CloudWatch / Loki**, **Prometheus** metrics with **Grafana** dashboards, **Docker Compose** full-stack setup, and a **pytest** test suite (unit · integration · E2E) — all production-wired from the first commit.
+Ships fully wired: **JWT authentication** (python-jose), **PostgreSQL** with Django ORM and Django migrations, **AWS S3** file uploads with presigned URLs, async event processing via **AWS SQS + Lambda**, **Redis** caching, **Nginx** reverse proxy with DDoS protection, structured logging to **Sentry / CloudWatch / Loki**, **Prometheus** metrics with **Grafana** dashboards, **Docker Compose** full-stack setup, and a **pytest** test suite (unit · integration · E2E) — all production-wired from the first commit.
 
 ---
 
@@ -47,7 +47,7 @@ Ships fully wired: **JWT authentication** (python-jose), **PostgreSQL** with SQL
 - REST API (DRF `APIView`, versioned at `/api/v1/`) with Browsable API
 - GraphQL API (graphene-django, at `/graphql`)
 - JWT authentication (access + refresh tokens via python-jose)
-- PostgreSQL with Alembic — migrations applied on every `docker compose up --build`
+- PostgreSQL with Django migrations — applied on every `docker compose up --build`
 - S3 media uploads (LocalStack for local dev, real AWS in production)
 - Async event processing via **SQS + Lambda** — Django app publishes events to SQS; a Lambda function (locally: a worker container) consumes them and writes to Postgres
 - **Nginx reverse proxy** as the single entry point on port 80, with DDoS protection: rate limiting, connection capping, Slowloris mitigation, and oversized-request blocking
@@ -79,64 +79,46 @@ Every feature is exposed over **both REST and GraphQL**. Both share the same dat
 
 ```
 .
-├── app/
-│   ├── __init__.py          # App factory (create_app)
-│   ├── config.py            # Dev / Prod / Test config classes
-│   ├── extensions.py        # db, migrate, jwt singletons
-│   ├── models/              # SQLAlchemy models (User, Media, Event)
-│   ├── services/            # External integrations (S3, SQS)
-│   ├── logging/             # AppLogger, SentryLogger, CloudWatchLogger, data_filter
-│   ├── api/
-│   │   └── v1/              # REST blueprints (auth, media, events, cache, health)
-│   └── graphql_api/
-│       ├── resolvers/       # GraphQL mutations and queries
-│       ├── types/           # Strawberry type definitions
-│       ├── utils.py         # Shared GraphQL helpers (model → type converters)
-│       └── schema.py        # Merged GraphQL schema
+├── services/                        # One folder per microservice
+│   └── app/                         # Django REST + GraphQL API
+│       ├── app/
+│       │   ├── __init__.py
+│       │   ├── apps.py              # AppAppConfig — initializes logger + cache at startup
+│       │   ├── settings/            # base.py / development.py / production.py / testing.py
+│       │   ├── urls.py              # Root URL conf
+│       │   ├── middleware/          # RequestLoggingMiddleware
+│       │   ├── models/              # Django ORM models (User, Media, Event)
+│       │   │   └── migrations/      # Django migrations (auto-generated)
+│       │   ├── services/            # External integrations (S3, SQS)
+│       │   ├── logging/             # AppLogger, SentryLogger, CloudWatchLogger, data_filter
+│       │   ├── api/
+│       │   │   └── v1/              # DRF APIView classes + serializers + urls
+│       │   └── graphql_api/
+│       │       ├── queries/         # Graphene Query classes
+│       │       ├── mutations/       # Graphene Mutation classes
+│       │       ├── types.py         # Graphene ObjectType definitions
+│       │       ├── utils.py         # JWT token helpers for resolvers
+│       │       └── schema.py        # Root schema
+│       ├── manage.py                # Django management CLI
+│       ├── asgi.py                  # ASGI entry point (dev server)
+│       ├── Dockerfile               # Production image (gunicorn + wsgi)
+│       └── Dockerfile.dev           # Dev image (uvicorn + debugpy)
 ├── lambda/
 │   ├── handler.py           # Shared: handler(event, context) for Lambda + poll() for local dev
 │   ├── Dockerfile           # Local dev — long-polling worker (used by docker-compose)
 │   ├── Dockerfile.lambda    # AWS Lambda — uses Lambda Python base image
 │   └── requirements.txt     # Lambda dependencies (boto3, sqlalchemy, psycopg2)
-├── .github/
-│   └── workflows/
-│       ├── ci.yml           # Lint + test on every push and pull request
-│       └── deploy.yml       # Build images → push to ECR → deploy to ECS + Lambda (manual trigger)
-├── terraform/
-│   ├── bootstrap/           # Run once: creates S3 state bucket + DynamoDB lock table
-│   ├── environments/
-│   │   ├── dev.tfvars       # Dev-specific sizes and flags
-│   │   └── prod.tfvars      # Prod: Multi-AZ, deletion protection, HTTPS
-│   ├── modules/
-│   │   ├── networking/      # VPC, NAT gateway, subnets, security groups, VPC flow logs
-│   │   ├── ecr/             # ECR repositories for app and worker images
-│   │   ├── iam/             # ECS roles, Lambda role, GitHub OIDC deploy role
-│   │   ├── rds/             # PostgreSQL on RDS + DATABASE_URL stored in Secrets Manager
-│   │   ├── elasticache/     # Redis (ElastiCache replication group)
-│   │   ├── s3/              # Media bucket with encryption + HTTPS-only policy
-│   │   ├── sqs/             # Events queue + dead-letter queue
-│   │   ├── alb/             # Application Load Balancer with HTTP→HTTPS redirect
-│   │   ├── waf/             # WAF: OWASP Top 10, SQLi rules, per-IP rate limit
-│   │   ├── ecs/             # Fargate cluster, task definition, service
-│   │   └── lambda/          # Container image Lambda function + SQS event source
-│   ├── main.tf              # Root module — wires all child modules
-│   ├── variables.tf         # All input variables with descriptions
-│   ├── outputs.tf           # Outputs map directly to GitHub environment vars
-│   ├── versions.tf          # Provider pins + S3 backend stub
-│   └── backend.hcl          # Fill-in template — gitignored, never committed
-├── nginx/
-│   └── nginx.conf           # Reverse proxy config with DDoS protection
-├── migrations/              # Alembic migration files (auto-generated on up --build)
-├── Dockerfile               # Production image (gunicorn)
-├── Dockerfile.dev           # Dev image (uvicorn + debugpy)
 ├── docker-compose.yml       # Full local stack
-├── wsgi.py                  # Production entrypoint
-├── migrate.sh               # Interactive migration helper
-├── start_infra.sh           # Start only DB + S3 (for host debugging)
-└── .vscode/
-    ├── launch.json          # VSCode debug configurations
-    └── tasks.json           # Pre/post debug tasks
+├── wsgi.py                  # Production entrypoint (accessible to Docker build context)
+├── requirements.txt         # App dependencies (accessible to Docker build context)
+└── .github/
+    └── workflows/
+        ├── ci.yml           # Lint + test on every push to main/develop and pull request
+        ├── deploy-dev.yml   # Build → ECR → ECS + Lambda deploy (dev environment)
+        └── deploy-prod.yml  # Build → ECR → ECS + Lambda deploy (production, manual approval)
 ```
+
+> **Why `wsgi.py` and `requirements*.txt` stay at the repo root:** Docker build context is anchored at `.`. `manage.py` and `asgi.py` live inside `services/app/` because they are accessed via the `./services/app:/app` volume mount in the containers.
 
 ---
 
@@ -532,18 +514,16 @@ query {
 
 ## Database Migrations
 
-Migrations are **automatic** — every `docker compose up --build` runs `alembic revision --autogenerate` (detects model changes, generates a file if needed) followed by `alembic upgrade head`. You never need to run migration commands manually for new models.
+Migrations are **automatic** — every `docker compose up --build` runs the `migrate` service, which applies all pending Django migrations before the app starts. You never need to run migration commands manually for schema changes that already have a migration file.
 
-To run manually (e.g. to apply a handwritten migration outside of the full stack):
+To generate and apply migrations manually (e.g. after adding a new model):
 
 ```bash
-docker compose exec app alembic revision --autogenerate -m "description"
-docker compose exec app alembic upgrade head
+docker compose run --rm migrate python manage.py makemigrations app -m "description"
+docker compose run --rm migrate python manage.py migrate
 ```
 
-> Use `exec app` (not `run --rm migrate`) so the generated file is written to the host via the volume mount.
-
-> New models must be imported in `app/models/__init__.py` or Alembic won't detect them.
+> New models must be imported in `services/app/app/models/__init__.py` so Django can discover them.
 
 ---
 
@@ -565,8 +545,9 @@ All external traffic enters through **Nginx on port 80** (`nginx/nginx.conf`). T
 
 **Adding a new microservice:**
 
-1. Add the service to `docker-compose.yml` — no port exposure needed (stays internal).
-2. Add an upstream and a location block to `nginx/nginx.conf`:
+1. Create `services/<name>/` with Dockerfile and Dockerfile.dev.
+2. Add the service to `docker-compose.yml` — no port exposure needed (stays internal).
+3. Add an upstream and a location block to `nginx/nginx.conf`:
 
 ```nginx
 upstream payments {
@@ -580,7 +561,7 @@ location /payments/ {
 }
 ```
 
-3. Reload Nginx without downtime:
+4. Reload Nginx without downtime:
 
 ```bash
 docker compose up -d payments
@@ -630,7 +611,7 @@ The `worker` container (`lambda/handler.py`) polls SQS using long-polling (`Wait
 | File | Used by | Runtime |
 |---|---|---|
 | `lambda/Dockerfile` | `docker-compose.yml` | Long-polling loop (`poll()`) — blocks and polls SQS continuously |
-| `lambda/Dockerfile.lambda` | `deploy.yml` CI/CD | AWS Lambda base image — Lambda runtime invokes `handler()` per SQS batch |
+| `lambda/Dockerfile.lambda` | `deploy-dev.yml` / `deploy-prod.yml` CI/CD | AWS Lambda base image — Lambda runtime invokes `handler()` per SQS batch |
 
 The CI/CD pipeline builds `Dockerfile.lambda` and pushes it to ECR. On AWS, `DATABASE_URL` points to RDS, `SQS_QUEUE_URL` to the real queue, and `AWS_SQS_ENDPOINT_URL` is unset (boto3 routes to real AWS automatically).
 
@@ -670,9 +651,9 @@ The boilerplate ships with a hardened baseline. The measures below are active ou
 
 **`SECRET_KEY` is required** — the app refuses to start if `SECRET_KEY` is not set. There is no default fallback. Set it in `.env.local` for local dev; Secrets Manager injects it in production via the ECS task definition.
 
-**File uploads are restricted** — only `jpg`, `jpeg`, `png`, `gif`, `webp`, `pdf`, `mp4`, `mov` are accepted. Anything else returns `415`. Maximum upload size is 50 MB (`MAX_CONTENT_LENGTH` in config). To extend the allowlist, edit `_ALLOWED_EXTENSIONS` in [app/api/v1/media.py](app/api/v1/media.py).
+**File uploads are restricted** — only `jpg`, `jpeg`, `png`, `gif`, `webp`, `pdf`, `mp4`, `mov` are accepted. Anything else returns `415`. Maximum upload size is 50 MB (`MAX_CONTENT_LENGTH` in config). To extend the allowlist, edit `_ALLOWED_EXTENSIONS` in [services/app/app/api/v1/views/media.py](services/app/app/api/v1/views/media.py).
 
-**SQL queries are stripped from logs** — SQLAlchemy exceptions include the full query and bound parameters in their string representation. `sanitize_traceback()` in [app/logging/data_filter.py](app/logging/data_filter.py) redacts `[SQL: ...]` and `[parameters: ...]` blocks from every traceback before it reaches any log backend (Console, Sentry, CloudWatch, Loki). The Lambda worker has an equivalent `_safe_exc()` helper.
+**SQL queries are stripped from logs** — Django ORM exceptions can include the full query and bound parameters in their string representation. `sanitize_traceback()` in [services/app/app/logging/data_filter.py](services/app/app/logging/data_filter.py) redacts `[SQL: ...]` and `[parameters: ...]` blocks from every traceback before it reaches any log backend (Console, Sentry, CloudWatch, Loki). The Lambda worker has an equivalent `_safe_exc()` helper.
 
 **GraphQL introspection is disabled in production** — controlled by `GRAPHQL_INTROSPECTION` in `config.py`. `True` in `DevelopmentConfig` (playground needs it), `False` in `ProductionConfig`. Introspection lets unauthenticated callers enumerate your entire schema.
 
@@ -874,7 +855,7 @@ build  ── all images pushed to ECR before anything deploys
 
 **Why migrations are a separate job:** during a rolling ECS update, old and new task instances run simultaneously against the same database. Migrations must complete and be backward-compatible before any instance picks up the new code.
 
-**Adding a new microservice:** add a build step to `build`, a `run_migration` call in both `migrate-*` jobs, and a deploy step at the correct tier in both `deploy-*` jobs. Workers go in `deploy-workers-*`.
+**Adding a new microservice:** add a build step to `build` with `context: .` and `file: services/<name>/Dockerfile`, a `run_migration` call in both `migrate-*` jobs if it has its own DB, and a deploy step at the correct tier in both `deploy-*` jobs. Workers go in `deploy-workers-*`.
 
 The production approval gate is a native GitHub feature: create a `production` environment in **Settings → Environments**, add required reviewers, and the workflow pauses automatically.
 
@@ -1216,7 +1197,7 @@ The only app-side requirement is the `/metrics` endpoint — ADOT picks it up au
 
 ## Production Image
 
-The production Docker image uses `Dockerfile` (gunicorn, 4 workers, no debugpy). To smoke-test it in isolation:
+The production Docker image uses `services/app/Dockerfile` (gunicorn, 4 workers, no debugpy). To smoke-test it in isolation:
 
 ```bash
 bash launch_app_docker_image.sh

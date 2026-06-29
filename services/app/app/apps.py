@@ -21,7 +21,9 @@ class AppAppConfig(AppConfig):
         from app.logging.loki_logger import LokiLogger
         from app.services.cache_service import CacheService
 
-        env = os.getenv("DJANGO_SETTINGS_MODULE", "app.settings.development").split(".")[-1]
+        env = os.getenv("DJANGO_SETTINGS_MODULE", "app.settings.development").split(
+            "."
+        )[-1]
 
         loggers = [ConsoleLogger(debug=getattr(settings, "DEBUG", False))]
 
@@ -55,5 +57,7 @@ class AppAppConfig(AppConfig):
 
         AppAppConfig.logger_adapter = AppLogger(*loggers)
         AppAppConfig.cache = (
-            CacheService.from_url(settings.REDIS_URL) if getattr(settings, "REDIS_URL", None) else None
+            CacheService.from_url(settings.REDIS_URL)
+            if getattr(settings, "REDIS_URL", None)
+            else None
         )

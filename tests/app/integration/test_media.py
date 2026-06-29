@@ -47,7 +47,9 @@ class TestUpload:
         assert record.content_key == _FAKE_S3_KEY
 
     def test_s3_failure_returns_500(self, client, auth_headers):
-        with patch("app.api.v1.views.media.upload_file", side_effect=Exception("S3 down")):
+        with patch(
+            "app.api.v1.views.media.upload_file", side_effect=Exception("S3 down")
+        ):
             res = client.post(
                 "/api/v1/media/upload",
                 {"file": SimpleUploadedFile("test.jpg", b"data", "image/jpeg")},
@@ -77,13 +79,33 @@ class TestGetUrl:
         assert res.json()["data"]["url"] == _FAKE_URL
 
     def test_another_users_media_returns_404(self, client):
-        client.post("/api/v1/auth/register", {"email": "u1@x.com", "password": "Pass1!"}, format="json")
-        client.post("/api/v1/auth/register", {"email": "u2@x.com", "password": "Pass2!"}, format="json")
+        client.post(
+            "/api/v1/auth/register",
+            {"email": "u1@x.com", "password": "Pass1!"},
+            format="json",
+        )
+        client.post(
+            "/api/v1/auth/register",
+            {"email": "u2@x.com", "password": "Pass2!"},
+            format="json",
+        )
 
-        token1 = client.post("/api/v1/auth/login", {"email": "u1@x.com", "password": "Pass1!"}, format="json").json()["data"]["access_token"]
-        token2 = client.post("/api/v1/auth/login", {"email": "u2@x.com", "password": "Pass2!"}, format="json").json()["data"]["access_token"]
+        token1 = client.post(
+            "/api/v1/auth/login",
+            {"email": "u1@x.com", "password": "Pass1!"},
+            format="json",
+        ).json()["data"]["access_token"]
+        token2 = client.post(
+            "/api/v1/auth/login",
+            {"email": "u2@x.com", "password": "Pass2!"},
+            format="json",
+        ).json()["data"]["access_token"]
 
-        media_id = _upload(client, {"HTTP_AUTHORIZATION": f"Bearer {token1}"}).json()["data"]["media_id"]
+        media_id = _upload(client, {"HTTP_AUTHORIZATION": f"Bearer {token1}"}).json()[
+            "data"
+        ]["media_id"]
 
-        res = client.get(f"/api/v1/media/{media_id}/url", HTTP_AUTHORIZATION=f"Bearer {token2}")
+        res = client.get(
+            f"/api/v1/media/{media_id}/url", HTTP_AUTHORIZATION=f"Bearer {token2}"
+        )
         assert res.status_code == 404

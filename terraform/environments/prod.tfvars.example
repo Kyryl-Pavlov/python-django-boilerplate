@@ -1,8 +1,8 @@
 environment         = "prod"
 github_org          = "YOUR_GITHUB_ORG"
 github_repo         = "YOUR_GITHUB_REPO"
-tf_state_bucket     = "YOUR_TFSTATE_BUCKET"
-tf_state_lock_table = "YOUR_TFSTATE_LOCK_TABLE"
+tf_state_bucket     = "YOUR_ORG-django-boilerplate-tfstate"
+tf_state_lock_table = "django-boilerplate-tfstate-lock"
 
 app_image    = "ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/django-boilerplate/app:latest"
 worker_image = "ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/django-boilerplate/worker:latest"

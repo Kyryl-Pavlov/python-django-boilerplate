@@ -1,4 +1,3 @@
-import io
 import json
 import uuid
 from unittest.mock import patch
@@ -46,7 +45,9 @@ def _upload_file(client, auth_header=None):
 @pytest.mark.django_db
 class TestSignedUrl:
     def test_no_auth_returns_error(self, gql):
-        payload = gql(_SIGNED_URL, {"mediaId": str(uuid.uuid4())}).json()["data"]["signedUrl"]
+        payload = gql(_SIGNED_URL, {"mediaId": str(uuid.uuid4())}).json()["data"][
+            "signedUrl"
+        ]
         assert payload["success"] is False
 
     def test_nonexistent_media_returns_not_found(self, gql, gql_auth_headers):
@@ -61,13 +62,20 @@ class TestSignedUrl:
     def test_success_returns_url(self, client, gql, gql_auth_headers):
         access_header = gql_auth_headers["access"]["HTTP_AUTHORIZATION"]
         with (
-            patch("app.graphql_api.mutations.media.upload_file", return_value=_FAKE_KEY),
-            patch("app.graphql_api.mutations.media.get_presigned_url", return_value=_FAKE_URL),
+            patch(
+                "app.graphql_api.mutations.media.upload_file", return_value=_FAKE_KEY
+            ),
+            patch(
+                "app.graphql_api.mutations.media.get_presigned_url",
+                return_value=_FAKE_URL,
+            ),
         ):
             upload_res = _upload_file(client, access_header)
         media_id = upload_res.json()["data"]["uploadFile"]["data"]["mediaId"]
 
-        with patch("app.graphql_api.queries.media.get_presigned_url", return_value=_FAKE_URL):
+        with patch(
+            "app.graphql_api.queries.media.get_presigned_url", return_value=_FAKE_URL
+        ):
             payload = gql(
                 _SIGNED_URL,
                 {"mediaId": media_id},
@@ -88,8 +96,13 @@ class TestUploadFile:
     def test_success_returns_media_payload(self, client, gql_auth_headers):
         access_header = gql_auth_headers["access"]["HTTP_AUTHORIZATION"]
         with (
-            patch("app.graphql_api.mutations.media.upload_file", return_value=_FAKE_KEY),
-            patch("app.graphql_api.mutations.media.get_presigned_url", return_value=_FAKE_URL),
+            patch(
+                "app.graphql_api.mutations.media.upload_file", return_value=_FAKE_KEY
+            ),
+            patch(
+                "app.graphql_api.mutations.media.get_presigned_url",
+                return_value=_FAKE_URL,
+            ),
         ):
             payload = _upload_file(client, access_header).json()["data"]["uploadFile"]
 
@@ -99,6 +112,9 @@ class TestUploadFile:
 
     def test_s3_failure_returns_error(self, client, gql_auth_headers):
         access_header = gql_auth_headers["access"]["HTTP_AUTHORIZATION"]
-        with patch("app.graphql_api.mutations.media.upload_file", side_effect=Exception("S3 down")):
+        with patch(
+            "app.graphql_api.mutations.media.upload_file",
+            side_effect=Exception("S3 down"),
+        ):
             payload = _upload_file(client, access_header).json()["data"]["uploadFile"]
         assert payload["success"] is False

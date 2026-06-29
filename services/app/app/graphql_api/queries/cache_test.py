@@ -2,7 +2,11 @@ import time
 
 import graphene
 
-from app.graphql_api.types import CacheTestPayloadType, CacheTestResponse, StringResponse
+from app.graphql_api.types import (
+    CacheTestPayloadType,
+    CacheTestResponse,
+    StringResponse,
+)
 
 _CACHE_KEY = "cache_test"
 _CACHE_TTL = 60

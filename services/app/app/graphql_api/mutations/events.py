@@ -26,7 +26,9 @@ class PublishEvent(graphene.Mutation):
             payload_dict = json.loads(payload) if isinstance(payload, str) else payload
             message_id = send_event(type, payload_dict)
         except Exception as e:
-            return StringResponse(success=False, message=f"Failed to publish event: {e}")
+            return StringResponse(
+                success=False, message=f"Failed to publish event: {e}"
+            )
 
         return StringResponse(success=True, message="Event published", data=message_id)
 

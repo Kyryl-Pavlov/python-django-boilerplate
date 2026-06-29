@@ -70,6 +70,7 @@ logs/
 .aws/
 
 # Terraform
+terraform/environments/*.tfvars
 terraform/.terraform/
 terraform/terraform.tfstate
 terraform/terraform.tfstate.backup
@@ -81,3 +82,4 @@ terraform/*_override.tf.json
 terraform/bootstrap/.terraform/
 terraform/bootstrap/terraform.tfstate
 terraform/bootstrap/terraform.tfstate.backup
+terraform/environments/*.tfvars

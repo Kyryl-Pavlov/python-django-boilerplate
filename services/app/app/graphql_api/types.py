@@ -36,6 +36,7 @@ class EventPayloadType(graphene.ObjectType):
 
 # ── Per-resolver response wrappers ─────────────────────────────────────────────
 
+
 class HealthResponse(graphene.ObjectType):
     success = graphene.Boolean(required=True)
     message = graphene.String(required=True)

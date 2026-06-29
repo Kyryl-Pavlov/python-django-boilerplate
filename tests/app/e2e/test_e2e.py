@@ -16,8 +16,8 @@ def test_health_check(http, base_url):
     res = http.get(f"{base_url}/health")
     assert res.status_code == 200
     body = res.json()
-    assert body["status"] == "ok"
-    assert "version" in body
+    assert body["message"] == "ok"
+    assert "version" in body["data"]
 
 
 def test_auth_register_and_login(http, base_url):
@@ -40,7 +40,7 @@ def test_media_upload_and_get_presigned_url(http, base_url, auth_headers):
     res = http.post(
         f"{base_url}/media/upload",
         headers=auth_headers,
-        files={"file": ("e2e.txt", io.BytesIO(b"e2e smoke content"), "text/plain")},
+        files={"file": ("e2e.png", io.BytesIO(b"e2e smoke content"), "image/png")},
     )
     assert res.status_code == 201
     data = res.json()["data"]
