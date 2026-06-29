@@ -70,6 +70,7 @@ logs/
 .aws/
 
 # Terraform
+terraform/environments/*.tfvars
 terraform/.terraform/
 terraform/terraform.tfstate
 terraform/terraform.tfstate.backup

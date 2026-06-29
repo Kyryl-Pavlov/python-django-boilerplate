@@ -1,7 +1,11 @@
 name: CI
 
 on:
-  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
 
 jobs:
   lint:
@@ -38,6 +42,8 @@ jobs:
         run: pip install -r requirements-test.txt
 
       - name: Run tests
+        env:
+          SECRET_KEY: test-only-not-a-real-secret
         run: pytest tests/app/unit tests/app/integration --cov=app --cov-report=term-missing
 
   e2e:
@@ -57,6 +63,10 @@ jobs:
       - name: Start CI stack
         run: docker compose -f docker-compose.ci.yml up -d --wait
         timeout-minutes: 5
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.ci.yml logs
 
       - name: Run E2E tests
         env:

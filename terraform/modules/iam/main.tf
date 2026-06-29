@@ -150,10 +150,12 @@ resource "aws_iam_role" "github_actions" {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
         StringLike = {
-          # Scoped to main and develop branches of the specific repo
+          # Branches (build jobs without environment:) and named environments (build jobs with environment:)
           "token.actions.githubusercontent.com:sub" = [
             "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main",
             "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/develop",
+            "repo:${var.github_org}/${var.github_repo}:environment:dev",
+            "repo:${var.github_org}/${var.github_repo}:environment:production",
           ]
         }
       }
@@ -227,6 +229,7 @@ resource "aws_iam_role_policy" "github_actions" {
         Action = [
           "lambda:UpdateFunctionCode",
           "lambda:GetFunction",
+          "lambda:GetFunctionConfiguration",
         ]
         Resource = "arn:aws:lambda:${var.aws_region}:${var.aws_account_id}:function:${local.prefix}-worker"
       },

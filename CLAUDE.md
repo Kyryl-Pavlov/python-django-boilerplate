@@ -10,19 +10,19 @@ The following security controls are intentionally in place. Do not remove or wea
 
 | Measure | Location | Rule |
 |---|---|---|
-| `SECRET_KEY` fail-fast | `app/settings/base.py` — `_require()` | Raises `RuntimeError` at startup if unset. Never add a default fallback value. |
+| `SECRET_KEY` fail-fast | `services/app/app/settings/base.py` — `_require()` | Raises `RuntimeError` at startup if unset. Never add a default fallback value. |
 | Upload size limit | `nginx/nginx.conf` — `client_max_body_size 50m` | Applied on both `/api/` and `/graphql` locations. Django itself has no built-in size cap; Nginx is the enforcement point. |
-| File upload allowlist | `app/api/v1/views/media.py` — `_ALLOWED_EXTENSIONS` | Allowlist of safe extensions only. Extend deliberately; never switch to a blocklist. |
-| SQL masking in logs | `app/logging/data_filter.py` — `sanitize_traceback()` | Strips `[SQL: ...]`, `[parameters: ...]`, and connection strings from every traceback before it reaches any log backend. Lambda has an inline equivalent `_safe_exc()` in `lambda/handler.py`. |
-| GraphQL introspection | `app/settings/development.py` + `app/settings/production.py` | `GRAPHQL_INTROSPECTION = True` in development only; `False` in production. Do not hardcode `True`. |
-| Explicit JWT algorithm | `app/settings/base.py` — `SIMPLE_JWT["ALGORITHM"] = "HS256"` | Pinned to prevent silent algorithm changes on library upgrades. |
+| File upload allowlist | `services/app/app/api/v1/views/media.py` — `_ALLOWED_EXTENSIONS` | Allowlist of safe extensions only. Extend deliberately; never switch to a blocklist. |
+| SQL masking in logs | `services/app/app/logging/data_filter.py` — `sanitize_traceback()` | Strips `[SQL: ...]`, `[parameters: ...]`, and connection strings from every traceback before it reaches any log backend. Lambda has an inline equivalent `_safe_exc()` in `lambda/handler.py`. |
+| GraphQL introspection | `services/app/app/settings/development.py` + `services/app/app/settings/production.py` | `GRAPHQL_INTROSPECTION = True` in development only; `False` in production. Do not hardcode `True`. |
+| Explicit JWT algorithm | `services/app/app/settings/base.py` — `SIMPLE_JWT["ALGORITHM"] = "HS256"` | Pinned to prevent silent algorithm changes on library upgrades. |
 
 ### Infrastructure (Terraform)
 
 | Measure | Location | Rule |
 |---|---|---|
 | Redis TLS | `terraform/modules/elasticache/main.tf` | `transit_encryption_enabled = true`. Output URL is `rediss://` (double-s). Both must stay in sync. |
-| Non-root containers | `Dockerfile`, `lambda/Dockerfile`, `lambda/Dockerfile.lambda` | App uses a `app` system user; Lambda uses `nobody`. The `USER` instruction must remain after all `COPY`/`RUN` steps. |
+| Non-root containers | `services/app/Dockerfile`, `lambda/Dockerfile`, `lambda/Dockerfile.lambda` | App uses a `app` system user; Lambda uses `nobody`. The `USER` instruction must remain after all `COPY`/`RUN` steps. |
 | ECS task role SQS scope | `terraform/modules/iam/main.tf` | Django app: `sqs:SendMessage` + `sqs:GetQueueAttributes` only. Lambda worker: `ReceiveMessage` + `DeleteMessage`. Never cross-assign. |
 | Secrets Manager recovery | `terraform/main.tf`, `terraform/modules/rds/main.tf` | `recovery_window_in_days = 7`. Never set to `0` in committed code (risk of unrecoverable accidental deletion). |
 | WAF logging | `terraform/modules/waf/main.tf` | CloudWatch log group `aws-waf-logs-{prefix}`, 90-day retention. Do not remove `aws_wafv2_web_acl_logging_configuration`. |
@@ -72,21 +72,13 @@ docker compose logs -f app
 bash migrate.sh
 ```
 
-**`start_infra.sh`** — starts only the infrastructure services (Postgres, LocalStack, migrations) in detached mode. Used when running the Django app on the host for local debugging.
+**`launch_app_docker_image.sh`** — builds and launches a single service container standalone. Accepts an optional service name argument (default: `app`).
 
 ```bash
-bash start_infra.sh
-# To stop: docker compose stop postgres localstack
+bash launch_app_docker_image.sh          # builds services/app/Dockerfile
+bash launch_app_docker_image.sh payments # builds services/payments/Dockerfile for future services
+# To stop: docker stop django-boilerplate-<service>
 ```
-
-**`launch_app_docker_image.sh`** — builds the production Docker image standalone (no compose, no infrastructure) and starts a single detached container on port 5000. Useful for smoke-testing the image in isolation. After startup it hits `/api/v1/health` to verify the server is up and prints the GraphQL playground URL.
-
-```bash
-bash launch_app_docker_image.sh
-# To stop: docker stop django-boilerplate
-```
-
-> Note: this script starts only the app container with no database or LocalStack, so any endpoint that touches Postgres or S3 will fail. Use it only to verify the image builds and the process starts cleanly.
 
 ## Debugging
 
@@ -140,30 +132,81 @@ Other services reach the Django app internally via `http://app:5000` (direct) or
 
 **Environment:** All config lives in `.env.local`, loaded via `env_file` in compose. Never committed — use `.env.local` as the single source of truth for local development.
 
+## Multi-service Python path (`pyproject.toml`)
+
+`pyproject.toml` lives at the repo root and serves as the single pytest + ruff config. The `pythonpath` array controls which service directories pytest adds to `sys.path`:
+
+```toml
+[tool.pytest.ini_options]
+pythonpath = ["services/app"]  # one entry per Python microservice
+```
+
+When you add a new Python service, append its directory: `pythonpath = ["services/app", "services/payments"]`.
+
+## Services Layout
+
+Microservices live under `services/`. Each service is self-contained with its own Dockerfiles.
+
+```
+services/
+└── app/                     # Django REST + GraphQL API
+    ├── app/                 # Django app package (settings, models, views, etc.)
+    │   └── migrations/      # Django migrations (live inside the app)
+    ├── manage.py            # Django management CLI (dev + ECS migration tasks)
+    ├── asgi.py              # ASGI entry point (Dockerfile.dev + uvicorn)
+    ├── Dockerfile           # Production image (gunicorn + wsgi)
+    └── Dockerfile.dev       # Dev image (uvicorn + debugpy, hot-reload via volume)
+```
+
+### Docker build pattern
+
+Build context stays at `.` (repo root) so Dockerfiles can access `requirements.txt` and `wsgi.py`. Only the `dockerfile:` path points into `services/`:
+
+```yaml
+build:
+  context: .
+  dockerfile: services/app/Dockerfile
+```
+
+The production Dockerfile copies `services/app/manage.py` into the image so ECS migration tasks can run `python manage.py migrate`.
+
+### Dev volume mounts
+
+`app` and `migrate` services mount `./services/app:/app`. With this volume, `manage.py` is at `/app/manage.py` and `asgi.py` is at `/app/asgi.py` — the correct paths for their respective CMDs.
+
+### Adding a new microservice
+
+1. Create `services/<name>/` with `Dockerfile` and `Dockerfile.dev`.
+2. Add to `docker-compose.yml` with `context: .` and `dockerfile: services/<name>/Dockerfile.dev`.
+3. Add Nginx upstream + location in `nginx/nginx.conf`.
+4. Add build step in `deploy-dev.yml` and `deploy-prod.yml` with `context: .` and `file: services/<name>/Dockerfile`.
+5. Add ECR repo in `terraform/modules/ecr/main.tf` and ECS service in `terraform/`.
+6. Append `"services/<name>"` to `pythonpath` in `pyproject.toml`.
+
 ## Architecture
 
 ### Django App Structure
 
-`app/` is a single Django app. Settings are split by environment in `app/settings/` (base, development, production, testing). The active environment is selected via `DJANGO_SETTINGS_MODULE`.
+`services/app/app/` is a single Django app. Settings are split by environment in `services/app/app/settings/` (base, development, production, testing). The active environment is selected via `DJANGO_SETTINGS_MODULE`.
 
-`app/apps.py` — `AppAppConfig.ready()` initializes `AppLogger` and `CacheService` once at startup and stores them on the AppConfig instance. Access from views: `apps.get_app_config('app').logger_adapter`.
+`services/app/app/apps.py` — `AppAppConfig.ready()` initializes `AppLogger` and `CacheService` once at startup and stores them on the AppConfig instance. Access from views: `apps.get_app_config('app').logger_adapter`.
 
 ### Dual API Layer
 
 Every feature is exposed over both REST and GraphQL. Both share the same models and services — only the transport layer differs.
 
-- **REST:** `app/api/v1/` — DRF `APIView` classes mounted at `/api/v1/`
-- **GraphQL:** `app/graphql_api/` — graphene-django schema at `/graphql`, with `graphene-file-upload` for multipart uploads
+- **REST:** `services/app/app/api/v1/` — DRF `APIView` classes mounted at `/api/v1/`
+- **GraphQL:** `services/app/app/graphql_api/` — graphene-django schema at `/graphql`, with `graphene-file-upload` for multipart uploads
 
-GraphQL resolvers extract the JWT manually from `info.context["request"].META.get("HTTP_AUTHORIZATION")` using `get_token_from_bearer()` / `verify_access_token()` from `app/graphql_api/utils.py`, since graphene doesn't use DRF's authentication pipeline.
+GraphQL resolvers extract the JWT manually from `info.context["request"].META.get("HTTP_AUTHORIZATION")` using `get_token_from_bearer()` / `verify_access_token()` from `services/app/app/graphql_api/utils.py`, since graphene doesn't use DRF's authentication pipeline.
 
 ### Configuration
 
-`app/settings/base.py` contains all env vars read via `os.getenv()`. `SECRET_KEY` is fail-fast via `_require()`. All AWS/S3 settings must be in `base.py`, not only in `development.py`, or they will be absent in production mode.
+`services/app/app/settings/base.py` contains all env vars read via `os.getenv()`. `SECRET_KEY` is fail-fast via `_require()`. All AWS/S3 settings must be in `base.py`, not only in `development.py`, or they will be absent in production mode.
 
 ### S3 / LocalStack Split Endpoint
 
-The S3 service (`app/services/aws_s3_service.py`) maintains two boto3 client modes:
+The S3 service (`services/app/app/services/aws_s3_service.py`) maintains two boto3 client modes:
 
 - `_client()` — uses `AWS_S3_ENDPOINT_URL` (`http://localstack:4566`) for internal operations (upload). Resolvable only inside Docker.
 - `_client(public=True)` — uses `AWS_S3_PUBLIC_ENDPOINT_URL` (`http://localhost:4566`) for generating presigned URLs. Needed because presigned URLs are opened by the browser on the host machine, which cannot resolve the `localstack` hostname.
@@ -172,7 +215,7 @@ In production both env vars are unset (`None`), so boto3 routes to real AWS auto
 
 ### Models
 
-All models live in `app/models/` and are registered via `app/models/__init__.py`. Django discovers them automatically via `INSTALLED_APPS = ['app']`. Current models:
+All models live in `services/app/app/models/` and are registered via `services/app/app/models/__init__.py`. Django discovers them automatically via `INSTALLED_APPS = ['app']`. Current models:
 
 - `User` — UUID PK, `email` (unique), `AbstractBaseUser` with `BCryptSHA256PasswordHasher`; `AUTH_USER_MODEL = 'app.User'`
 - `Media` — UUID PK, `user` (FK → User ON DELETE CASCADE), `content_key` (S3 object key, **not** a URL), `created_at`
@@ -182,21 +225,21 @@ All models live in `app/models/` and are registered via `app/models/__init__.py`
 
 ### Logging
 
-The app uses an Object Adapter pattern. All loggers implement `LoggerProtocol` (`app/utils/logger.py`) and are injected into `AppLogger`, which fans out calls to all of them.
+The app uses an Object Adapter pattern. All loggers implement `LoggerProtocol` (`services/app/app/utils/logger.py`) and are injected into `AppLogger`, which fans out calls to all of them.
 
 | Class | Location | Behaviour |
 |---|---|---|
-| `AppLogger` | `app/logging/logger.py` | Fanout adapter; single public method `log(message, level, data, exc)`. `Level` enum exposed as `AppLogger.Level.{INFO,WARN,ERROR}` |
-| `ConsoleLogger` | `app/logging/logger.py` | stdout via Python `logging`; DEBUG in dev, WARNING in prod |
-| `SentryLogger` | `app/logging/sentry_logger.py` | `info`/`warn` → Sentry breadcrumbs; `error` → `capture_message` with extras |
-| `CloudWatchLogger` | `app/logging/cloudwatch_logger.py` | Structured JSON events via `watchtower`; supports `endpoint_url` for LocalStack |
-| `LokiLogger` | `app/logging/loki_logger.py` | POSTs structured JSON to Loki's `/loki/api/v1/push`; uses stdlib `urllib` only (no extra dependency); failures are silently swallowed |
+| `AppLogger` | `services/app/app/logging/logger.py` | Fanout adapter; single public method `log(message, level, data, exc)`. `Level` enum exposed as `AppLogger.Level.{INFO,WARN,ERROR}` |
+| `ConsoleLogger` | `services/app/app/logging/logger.py` | stdout via Python `logging`; DEBUG in dev, WARNING in prod |
+| `SentryLogger` | `services/app/app/logging/sentry_logger.py` | `info`/`warn` → Sentry breadcrumbs; `error` → `capture_message` with extras |
+| `CloudWatchLogger` | `services/app/app/logging/cloudwatch_logger.py` | Structured JSON events via `watchtower`; supports `endpoint_url` for LocalStack |
+| `LokiLogger` | `services/app/app/logging/loki_logger.py` | POSTs structured JSON to Loki's `/loki/api/v1/push`; uses stdlib `urllib` only (no extra dependency); failures are silently swallowed |
 
-`AppLogger` is initialized in `AppAppConfig.ready()` (`app/apps.py`) and stored as `AppAppConfig.logger_adapter`. Sentry, CloudWatch, and Loki are **opt-in** — only wired when their env vars are set. CloudWatch init failure is non-fatal. Loki push failures are silently swallowed.
+`AppLogger` is initialized in `AppAppConfig.ready()` (`services/app/app/apps.py`) and stored as `AppAppConfig.logger_adapter`. Sentry, CloudWatch, and Loki are **opt-in** — only wired when their env vars are set. CloudWatch init failure is non-fatal. Loki push failures are silently swallowed.
 
 **Loki labels:** every event is tagged with `{app: "django-boilerplate", env: <settings_env>, level: <info|warning|error>}`. Query in Grafana Explore with `{app="django-boilerplate"}` or `{level="error"}`.
 
-**Request logging:** `RequestLoggingMiddleware` (`app/middleware/logging.py`) logs method, path, status, duration_ms for every request via AppLogger at INFO level.
+**Request logging:** `RequestLoggingMiddleware` (`services/app/app/middleware/logging.py`) logs method, path, status, duration_ms for every request via AppLogger at INFO level.
 
 **Manual logging:**
 ```python
@@ -209,10 +252,10 @@ logger = info.context.logger_adapter
 logger.log("upload failed", level=logger.Level.ERROR, data={"key": s3_key}, exc=e)
 ```
 
-**Data filtering:** `mask_sensitive()` in `app/logging/data_filter.py` recursively replaces values of sensitive keys (`password`, `token`, `secret`, `authorization`, etc.) with `***`. Applied automatically in `AppLogger.log()` before any logger sees the data. To add keys, extend `_SENSITIVE_KEYS` in `data_filter.py`.
+**Data filtering:** `mask_sensitive()` in `services/app/app/logging/data_filter.py` recursively replaces values of sensitive keys (`password`, `token`, `secret`, `authorization`, etc.) with `***`. Applied automatically in `AppLogger.log()` before any logger sees the data. To add keys, extend `_SENSITIVE_KEYS` in `data_filter.py`.
 
 **Sentry notes:**
-- JWT auth failures return 401 from `app/security.py` — Sentry captures these via `DjangoIntegration` automatically.
+- JWT auth failures return 401 from `services/app/app/security.py` — Sentry captures these via `DjangoIntegration` automatically.
 - `info`/`warn` calls appear as breadcrumbs inside Sentry error events, not as standalone events. This is intentional — sending every log as an event burns Sentry quota.
 
 **CloudWatch / LocalStack notes:**
@@ -272,15 +315,15 @@ Fargate is serverless — there is no accessible host OS, Docker socket, or cgro
 The only app-side requirement for the production setup is the `/metrics` endpoint — ADOT picks it up without any code changes.
 
 **Adding a new logger backend:**
-1. Create a class in `app/logging/` implementing `LoggerProtocol` (`info`, `warning`, `error` methods).
-2. Instantiate it conditionally in `AppAppConfig.ready()` (`app/apps.py`) and append to `loggers`.
-3. Add the required env var to `app/settings/base.py`.
+1. Create a class in `services/app/app/logging/` implementing `LoggerProtocol` (`info`, `warning`, `error` methods).
+2. Instantiate it conditionally in `AppAppConfig.ready()` (`services/app/app/apps.py`) and append to `loggers`.
+3. Add the required env var to `services/app/app/settings/base.py`.
 
 ### Error Handling
 
 Each REST view and GraphQL resolver wraps risky operations (DB queries, S3 calls, UUID parsing) in individual `try/except` blocks with specific messages and appropriate status codes. Django's ORM auto-rolls back the transaction on unhandled exceptions.
 
-DRF authentication/permission errors are caught by `custom_exception_handler` in `app/api/exceptions.py`, which wraps them in the standard `{success, message, data, status_code}` envelope.
+DRF authentication/permission errors are caught by `custom_exception_handler` in `services/app/app/api/exceptions.py`, which wraps them in the standard `{success, message, data, status_code}` envelope.
 
 **S3 `_ensure_bucket`:** `head_bucket` raises `ClientError(404)`, not `client.exceptions.NoSuchBucket`. Always catch `botocore.exceptions.ClientError` and check `e.response["Error"]["Code"]` — catching the named exception variant silently falls through and skips bucket creation.
 
@@ -290,16 +333,16 @@ Each layer has a strict responsibility. Do not cross these boundaries:
 
 | Layer | Location | Responsibility |
 |---|---|---|
-| **Models** | `app/models/` | Django ORM model definitions only — no business logic, no imports from API or service layers |
-| **Services** | `app/services/` | External integrations (S3, SQS, future: email, payments). Read config directly from `os.getenv()` — no framework context assumptions |
-| **REST views** | `app/api/v1/views/` | Parse request, validate input via serializers, call services/models, return `api_response()`. No raw dict returns |
-| **REST serializers** | `app/api/v1/serializers/` | DRF serializers for input validation. Pure serialization only — no service calls |
-| **REST utils** | `app/api/utils.py` | `api_response()` helper. All reusable REST helper functions live here |
-| **GraphQL queries/mutations** | `app/graphql_api/queries/`, `app/graphql_api/mutations/` | Mirror REST views. Return per-resolver response types. No direct HTTP response logic |
-| **GraphQL utils** | `app/graphql_api/utils.py` | Token extraction helpers (`get_token_from_bearer`, `verify_access_token`, `verify_refresh_token`) |
-| **GraphQL types** | `app/graphql_api/types.py` | Graphene ObjectType definitions only — no resolver logic |
-| **Settings** | `app/settings/` | All configuration via `os.getenv()`. Env vars are never read directly in views or services |
-| **Logging** | `app/logging/` | `AppLogger` + logger adapters, `mask_sensitive` data filter. Logger stored on `AppAppConfig.logger_adapter`; accessed via `apps.get_app_config('app').logger_adapter` |
+| **Models** | `services/app/app/models/` | Django ORM model definitions only — no business logic, no imports from API or service layers |
+| **Services** | `services/app/app/services/` | External integrations (S3, SQS, future: email, payments). Read config directly from `os.getenv()` — no framework context assumptions |
+| **REST views** | `services/app/app/api/v1/views/` | Parse request, validate input via serializers, call services/models, return `api_response()`. No raw dict returns |
+| **REST serializers** | `services/app/app/api/v1/serializers/` | DRF serializers for input validation. Pure serialization only — no service calls |
+| **REST utils** | `services/app/app/api/utils.py` | `api_response()` helper. All reusable REST helper functions live here |
+| **GraphQL queries/mutations** | `services/app/app/graphql_api/queries/`, `services/app/app/graphql_api/mutations/` | Mirror REST views. Return per-resolver response types. No direct HTTP response logic |
+| **GraphQL utils** | `services/app/app/graphql_api/utils.py` | Token extraction helpers (`get_token_from_bearer`, `verify_access_token`, `verify_refresh_token`) |
+| **GraphQL types** | `services/app/app/graphql_api/types.py` | Graphene ObjectType definitions only — no resolver logic |
+| **Settings** | `services/app/app/settings/` | All configuration via `os.getenv()`. Env vars are never read directly in views or services |
+| **Logging** | `services/app/app/logging/` | `AppLogger` + logger adapters, `mask_sensitive` data filter. Logger stored on `AppAppConfig.logger_adapter`; accessed via `apps.get_app_config('app').logger_adapter` |
 
 ## Code Quality
 
@@ -393,7 +436,7 @@ All integration tests must be marked `@pytest.mark.django_db`. The `db` fixture 
 
 ### Gotchas
 
-**GraphQL vs REST auth** — resolvers call `get_token_from_bearer()` + `verify_access_token()` from `app/graphql_api/utils.py` manually. GraphQL always returns HTTP 200 — success/failure lives in `response.data.<resolver>.success`. Integration tests pass `Authorization` headers as Django META keys (`HTTP_AUTHORIZATION`).
+**GraphQL vs REST auth** — resolvers call `get_token_from_bearer()` + `verify_access_token()` from `services/app/app/graphql_api/utils.py` manually. GraphQL always returns HTTP 200 — success/failure lives in `response.data.<resolver>.success`. Integration tests pass `Authorization` headers as Django META keys (`HTTP_AUTHORIZATION`).
 
 **DRF kwargs for auth** — in test calls, pass auth as `**auth_headers` (which unpacks to `HTTP_AUTHORIZATION="..."`) not as a `headers=` dict, since `APIClient` uses Django's META naming convention.
 
@@ -418,7 +461,7 @@ All integration tests must be marked `@pytest.mark.django_db`. The `db` fixture 
 - REST response fields use snake_case throughout (`access_token`, `refresh_token`, `media_id`).
 
 **Responses:**
-- REST: always use `api_response(success, message, data, status_code)` from `app/api/utils.py`. Returns a DRF `Response` — never return a raw dict.
+- REST: always use `api_response(success, message, data, status_code)` from `services/app/app/api/utils.py`. Returns a DRF `Response` — never return a raw dict.
 - GraphQL: always return a per-resolver response type (e.g. `AuthResponse`, `StringResponse`) with `success`, `message`, and optionally `data`. Never raise exceptions from resolvers.
 
 **Authentication:**
@@ -428,12 +471,12 @@ All integration tests must be marked `@pytest.mark.django_db`. The `db` fixture 
 **Postman collection:** `postman_collection.json` at the repo root must be kept in sync with API changes. Update it whenever you add, remove, or rename an endpoint or change a request/response shape. The collection has two top-level folders — **REST** and **GraphQL** — each covering all endpoints (auth, media, events, cache, health). Collection-level variables (`base_url`, `access_token`, `refresh_token`, `media_id`) are shared across both folders. Test scripts on the Login and Upload File requests in both folders auto-capture tokens and IDs so subsequent requests chain without manual copy-paste.
 
 **Adding a new feature:**
-1. Add/update the Django model in `app/models/` and register it in `app/models/__init__.py`.
+1. Add/update the Django model in `services/app/app/models/` and register it in `services/app/app/models/__init__.py`.
 2. Generate and apply a migration: `python manage.py makemigrations app -m "description" && python manage.py migrate`.
-3. Add any external service logic to `app/services/`.
-4. Add a DRF `APIView` in `app/api/v1/views/`, a serializer in `app/api/v1/serializers/`, and wire the URL in `app/api/v1/urls.py`.
-5. Add graphene Query/Mutation classes in `app/graphql_api/queries/` and `app/graphql_api/mutations/`, then include them in `Query` and `Mutation` in `app/graphql_api/schema.py`.
-6. Add the corresponding Graphene type to `app/graphql_api/types.py` if needed.
+3. Add any external service logic to `services/app/app/services/`.
+4. Add a DRF `APIView` in `services/app/app/api/v1/views/`, a serializer in `services/app/app/api/v1/serializers/`, and wire the URL in `services/app/app/api/v1/urls.py`.
+5. Add graphene Query/Mutation classes in `services/app/app/graphql_api/queries/` and `services/app/app/graphql_api/mutations/`, then include them in `Query` and `Mutation` in `services/app/app/graphql_api/schema.py`.
+6. Add the corresponding Graphene type to `services/app/app/graphql_api/types.py` if needed.
 
 ## Lambda Worker Dockerfiles
 
@@ -446,9 +489,9 @@ Two Dockerfiles exist for these two runtimes:
 | File | Used by | CMD |
 |---|---|---|
 | `lambda/Dockerfile` | `docker-compose.yml` worker service | `python handler.py` → runs `poll()` |
-| `lambda/Dockerfile.lambda` | `deploy.yml` CI/CD worker image build | `handler.handler` → Lambda RIC calls `handler()` |
+| `lambda/Dockerfile.lambda` | `deploy-dev.yml` / `deploy-prod.yml` CI/CD worker image build | `handler.handler` → Lambda RIC calls `handler()` |
 
-Never use `Dockerfile` for the CI/CD image build — it produces a long-running process that is not a valid Lambda container. The deploy workflow already references `Dockerfile.lambda`.
+Never use `Dockerfile` for the CI/CD image build — it produces a long-running process that is not a valid Lambda container. The deploy workflows already reference `Dockerfile.lambda`.
 
 ## CI/CD Pipeline
 
@@ -496,12 +539,13 @@ Use a two-phase approach for breaking changes: first deploy adds the new column 
 
 ### Adding a new microservice
 
-1. Add its ECR repo to `terraform/modules/ecr/main.tf`
-2. Add its ECS service + task definition to `terraform/` (or a new module)
-3. Add a build step to the `build` job in `deploy.yml`
-4. Add a `run_migration` call in `migrate-dev` and `migrate-prod` (if it has its own DB)
-5. Add a deploy step in `deploy-dev` and `deploy-prod` at the correct tier
-6. Add its GitHub environment vars (`*_TASK_FAMILY`, `*_SERVICE`) via `terraform output`
+1. Create `services/<name>/` with its Dockerfile.
+2. Add ECR repo to `terraform/modules/ecr/main.tf`.
+3. Add ECS service + task definition to `terraform/`.
+4. Add build step in `deploy-dev.yml` and `deploy-prod.yml` with `context: .` and `file: services/<name>/Dockerfile`.
+5. Add `run_migration` call in migrate jobs if it has its own DB.
+6. Add deploy step at the correct tier.
+7. Add GitHub environment vars via `terraform output`.
 
 ### Required GitHub secrets and variables
 
